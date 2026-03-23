@@ -1,9 +1,12 @@
 package com.github.mstepan.hmnats;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
 import java.net.SocketTimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,15 +15,19 @@ public final class HMNatsMain {
     private static final Logger LOG = LoggerFactory.getLogger(HMNatsMain.class);
     private static final int TCP_PORT = 4222;
     private static final int SO_TIMEOUT_MILLIS = 1_000;
-    private volatile boolean isRunning = true;
+    private final AtomicBoolean running = new AtomicBoolean(true);
 
-    static void main() {
+    public static void main(String[] args) {
         new HMNatsMain().run();
     }
 
+    @SuppressFBWarnings(
+            value = "UNENCRYPTED_SERVER_SOCKET",
+            justification =
+                    "NATS protocol is plain TCP by default; TLS termination is expected to be optional"
+                            + " and configured at deployment level")
     void run() {
         LOG.info("hold-my-nats started");
-        isRunning = true;
 
         try (ServerSocket serverSocket = new ServerSocket(TCP_PORT)) {
             serverSocket.setSoTimeout(SO_TIMEOUT_MILLIS);
@@ -32,15 +39,15 @@ public final class HMNatsMain {
                                     .unstarted(
                                             () -> {
                                                 LOG.info("shutdown requested");
-                                                isRunning = false;
+                                                running.set(false);
                                                 SocketUtils.closeQuietly(serverSocket);
                                             }));
 
             LOG.info("TCP server listening on port {}", TCP_PORT);
 
-            while (isRunning) {
+            while (running.get()) {
                 try {
-                    Socket clientSocket = serverSocket.accept();
+                    final Socket clientSocket = serverSocket.accept();
                     LOG.info(
                             "accepted connection from {}:{}",
                             clientSocket.getInetAddress(),
@@ -48,18 +55,15 @@ public final class HMNatsMain {
 
                     Thread.ofVirtual()
                             .name("client-thread")
-                            .start(
-                                    () -> {
-                                        try {
-                                            while (!Thread.currentThread().isInterrupted()) {}
+                            .start(new ClientInteractionTask(clientSocket));
 
-                                        } finally {
-                                            SocketUtils.closeQuietly(clientSocket);
-                                        }
-                                    });
-
+                } catch (SocketException ex) {
+                    if (running.get()) {
+                        throw ex;
+                    }
+                    LOG.debug("Server socket closed as part of shutdown");
                 } catch (SocketTimeoutException ignored) {
-                    // Periodically check isRunning flag.
+                    // Periodically check 'running' flag.
                 }
             }
         } catch (IOException ex) {

@@ -1,5 +1,6 @@
 package com.github.mstepan.hmnats;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -13,18 +14,22 @@ final class SocketUtils {
     private SocketUtils() {}
 
     static void closeQuietly(ServerSocket serverSocket) {
-        try {
-            serverSocket.close();
-        } catch (IOException ex) {
-            LOG.warn("Failed to close server socket", ex);
-        }
+        closeQuietly(serverSocket, "server socket");
     }
 
     static void closeQuietly(Socket clientSocket) {
+        closeQuietly(clientSocket, "client socket");
+    }
+
+    private static void closeQuietly(Closeable resource, String resourceName) {
+        if (resource == null) {
+            return;
+        }
+
         try {
-            clientSocket.close();
+            resource.close();
         } catch (IOException ex) {
-            LOG.warn("Failed to close client socket", ex);
+            LOG.warn("Failed to close {}", resourceName, ex);
         }
     }
 }
