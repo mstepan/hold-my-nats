@@ -1,0 +1,39 @@
+# Cline Project Rules — hold-my-nats
+
+You are working in `hold-my-nats`, a Java implementation of a NATS-like server.
+
+## Core context
+
+- Language/runtime: **Java 25 LTS**
+- Build tool: **Maven Wrapper** (`./mvnw` / `mvnw.cmd`)
+- Key Java features in use: **Virtual Threads**, **Structured Concurrency (preview)**
+- Main package root: `com.github.mstepan.hmnats`
+
+## Coding rules
+
+- Prefer modern Java (records, sealed types, switch expressions, pattern matching where appropriate).
+- Keep concurrency code explicit and easy to reason about; avoid hidden thread-management behavior.
+- Keep networking and socket logic defensive:
+  - validate inputs,
+  - handle exceptions explicitly,
+  - close resources reliably.
+- Avoid adding new dependencies unless absolutely necessary.
+- Keep methods focused and readable; extract helpers instead of nesting deeply.
+
+## Build and verification rules
+
+- Use Maven Wrapper for all project commands.
+- Before finalizing non-trivial code changes, run:
+  - `./mvnw -q test` (or `mvnw.cmd -q test` on Windows)
+- If formatting is required, use Spotless via Maven plugin.
+
+## Runtime rules
+
+- Structured Concurrency is a preview feature; runtime requires `--enable-preview`.
+- Use `run.sh` for local execution unless a task explicitly requires another approach.
+
+## Change scope rules
+
+- Make minimal, targeted changes for each task.
+- Do not refactor unrelated parts of the codebase.
+- Keep docs updated when behavior or developer workflow changes.
