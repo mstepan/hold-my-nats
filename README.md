@@ -1,78 +1,82 @@
 # Hold My NATS
 
-This project implements [NATS](https://docs.nats.io/nats-concepts/what-is-nats) but using java instead of original one
-that is using golang.
+`hold-my-nats` is a Java implementation of
+[NATS](https://docs.nats.io/nats-concepts/what-is-nats), inspired by the original Go-based server.
 
-## Technology Stack Used
+## Tech stack
 
-* Written in `Java 25 LTS`. Version specified inside `.sdkmanrc` file using [sdkman](https://sdkman.io/usage)
-* Maven `v3.9.9` with the [wrapper](https://maven.apache.org/wrapper/)
-* Compiled to native executable using [GraalVM](https://www.graalvm.org/)
-* Uses [virtual threads](https://docs.oracle.com/en/java/javase/25/core/virtual-threads.html)
-  and [structured concurrency](https://docs.oracle.com/en/java/javase/24/core/structured-concurrency.html)
-* Uses [Error Prone](https://errorprone.info/) as an additional compiler to `javac`.
-* Uses [Spotless](https://github.com/diffplug/spotless/) for automatic code formatting
-  in [Android Open Source Project](https://source.android.com/docs/setup/contribute/code-style) style.
-* Uses [grype](https://github.com/anchore/grype) to detect CVEs inside dependencies.
+- **Java 25 LTS**
+  - Version is pinned in `.sdkmanrc`
+  - Managed with [SDKMAN](https://sdkman.io/usage)
+- **Maven 3.9.9** via the [Maven Wrapper](https://maven.apache.org/wrapper/)
+- **GraalVM** for building a native executable
+- Java concurrency features:
+  - [Virtual Threads](https://docs.oracle.com/en/java/javase/25/core/virtual-threads.html)
+  - [Structured Concurrency](https://docs.oracle.com/en/java/javase/24/core/structured-concurrency.html)
+- Quality and tooling:
+  - [Error Prone](https://errorprone.info/) for additional compile-time checks
+  - [Spotless](https://github.com/diffplug/spotless/) with
+    [AOSP style](https://source.android.com/docs/setup/contribute/code-style)
+  - [grype](https://github.com/anchore/grype) for dependency vulnerability scanning
 
-## Build & run
+## Build and run
 
-### Standard maven
-
-* Build self-executable jar file
+### 1) Build runnable JAR (standard Maven build)
 
 ```bash
 ./mvnw clean package
 ```
 
-* Run application
-  Pay attention that we also need to provide `--enable-preview` during runtime because we have used
-  [Structured Concurrency](https://docs.oracle.com/en/java/javase/25/core/structured-concurrency.html) which is in a
-  preview mode for java 25.
+### 2) Run the application
+
+Use the provided script:
 
 ```bash
 ./run.sh
 ```
 
-### Native image
+> **Why preview flags are needed:**
+> This project uses Structured Concurrency, which is a preview feature in Java 25.
+> Runtime must include `--enable-preview` (already handled by `run.sh`).
 
-* Build native image using maven `native` profile
+## Build native image
 
-If you're using Windows make sure you have [Visual Studio 2022](https://visualstudio.microsoft.com/downloads/)
-installed.
-It's necessary for the native image compilation.
+Build with the Maven `native` profile:
 
 ```bash
 ./mvnw clean package -Pnative -DskipTests
 ```
 
-* Run native executable (Windows or Unix)
+### Windows note
+
+On Windows, native-image compilation requires
+[Visual Studio 2022](https://visualstudio.microsoft.com/downloads/) to be installed.
+
+### Run native executable
+
+Windows:
 
 ```bash
 ./target/hold-my-nats.exe
+```
 
+Unix-like systems:
+
+```bash
 ./target/hold-my-nats
 ```
 
-## Vulnerability Scan
+## Vulnerability scan
 
-We will use [grype](https://github.com/anchore/grype) as our vulnerability scanner for CI and locally.
+Run [grype](https://github.com/anchore/grype) locally (same approach as CI):
 
 ```bash
 grype . --name hold-my-nats
 ```
 
-Expected output:
+Expected result should report no vulnerabilities, for example:
 
 ```
- ✔ Indexed file system                                                                                                                  .
- ✔ Cataloged contents 47be346d20a8cd65a0cf1689c66413d0193e7de65cde1e63a8f12efcc7b7e02f
-   ├── ✔ Packages                        [9 packages]
-   ├── ✔ File digests                    [0 files]
-   ├── ✔ Executables                     [0 executables]
-   └── ✔ File metadata                   [0 locations]
- ✔ Scanned for vulnerabilities     [0 vulnerability matches]
-   ├── by severity: 0 critical, 0 high, 0 medium, 0 low, 0 negligible
-   └── by status:   0 fixed, 0 not-fixed, 0 ignored
+✔ Scanned for vulnerabilities [0 vulnerability matches]
 No vulnerabilities found
 ```
