@@ -2,10 +2,12 @@ package com.github.mstepan.hmnats;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,6 +33,8 @@ public final class HMNatsMain {
 
         try (ServerSocket serverSocket = new ServerSocket(TCP_PORT)) {
             serverSocket.setSoTimeout(SO_TIMEOUT_MILLIS);
+            ServerRuntimeInfo.getInstance()
+                    .updateListeningAddress(resolveAdvertisedHost(serverSocket), TCP_PORT);
 
             Runtime.getRuntime()
                     .addShutdownHook(
@@ -71,5 +75,20 @@ public final class HMNatsMain {
         }
 
         LOG.info("hold-my-nats completed");
+    }
+
+    private static String resolveAdvertisedHost(ServerSocket serverSocket) {
+        final InetAddress boundAddress = serverSocket.getInetAddress();
+
+        if (boundAddress != null && !boundAddress.isAnyLocalAddress()) {
+            return boundAddress.getHostAddress();
+        }
+
+        try {
+            return InetAddress.getLocalHost().getHostAddress();
+        } catch (UnknownHostException ex) {
+            LOG.warn("Failed to resolve local host address, fallback to loopback", ex);
+            return InetAddress.getLoopbackAddress().getHostAddress();
+        }
     }
 }

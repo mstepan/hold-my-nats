@@ -3,21 +3,26 @@
 `hold-my-nats` is a Java implementation of
 [NATS](https://docs.nats.io/nats-concepts/what-is-nats), inspired by the original Go-based server.
 
+## Reference Material
+
+- [Build Your Own NATS Message Broker](https://codingchallenges.fyi/challenges/challenge-nats/)
+- [Client Protocol](https://docs.nats.io/reference/reference-protocols/nats-protocol)
+
 ## Tech stack
 
 - **Java 25 LTS**
-  - Version is pinned in `.sdkmanrc`
-  - Managed with [SDKMAN](https://sdkman.io/usage)
+    - Version is pinned in `.sdkmanrc`
+    - Managed with [SDKMAN](https://sdkman.io/usage)
 - **Maven 3.9.9** via the [Maven Wrapper](https://maven.apache.org/wrapper/)
 - **GraalVM** for building a native executable
 - Java concurrency features:
-  - [Virtual Threads](https://docs.oracle.com/en/java/javase/25/core/virtual-threads.html)
-  - [Structured Concurrency](https://docs.oracle.com/en/java/javase/24/core/structured-concurrency.html)
+    - [Virtual Threads](https://docs.oracle.com/en/java/javase/25/core/virtual-threads.html)
+    - [Structured Concurrency](https://docs.oracle.com/en/java/javase/24/core/structured-concurrency.html)
 - Quality and tooling:
-  - [Error Prone](https://errorprone.info/) for additional compile-time checks
-  - [Spotless](https://github.com/diffplug/spotless/) with
-    [AOSP style](https://source.android.com/docs/setup/contribute/code-style)
-  - [grype](https://github.com/anchore/grype) for dependency vulnerability scanning
+    - [Error Prone](https://errorprone.info/) for additional compile-time checks
+    - [Spotless](https://github.com/diffplug/spotless/) with
+      [AOSP style](https://source.android.com/docs/setup/contribute/code-style)
+    - [grype](https://github.com/anchore/grype) for dependency vulnerability scanning
 
 ## Build and run
 
