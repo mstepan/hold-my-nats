@@ -59,7 +59,7 @@ public final class HMNatsMain {
 
                     Thread.ofVirtual()
                             .name("client-thread")
-                            .start(new ClientInteractionTask(clientSocket));
+                            .start(new ClientInteractionHandler(clientSocket));
 
                 } catch (SocketException ex) {
                     if (running.get()) {

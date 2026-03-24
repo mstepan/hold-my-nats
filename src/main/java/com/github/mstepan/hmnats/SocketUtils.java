@@ -11,7 +11,9 @@ final class SocketUtils {
 
     private static final Logger LOG = LoggerFactory.getLogger(SocketUtils.class);
 
-    private SocketUtils() {}
+    private SocketUtils() {
+        throw new AssertionError("Can't instantiate utility-only class");
+    }
 
     static void closeQuietly(ServerSocket serverSocket) {
         closeQuietly(serverSocket, "server socket");
