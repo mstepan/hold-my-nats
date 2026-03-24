@@ -18,6 +18,8 @@ final class ClientInteractionHandler implements Runnable {
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final Charset PROTOCOL_CHARSET = StandardCharsets.UTF_8;
 
+    private static final int MAX_ALLOWED_COMMAND_BYTES = 1024;
+
     private static final String DELIMITER = "\r\n";
     private static final byte[] DELIMITER_BYTES = DELIMITER.getBytes(PROTOCOL_CHARSET);
     private static final String CONNECT_COMMAND = "CONNECT";
@@ -42,7 +44,7 @@ final class ClientInteractionHandler implements Runnable {
     @Override
     public void run() {
 
-        final ByteBuffer buffer = ByteBuffer.allocate(1024);
+        final ByteBuffer buffer = ByteBuffer.allocate(MAX_ALLOWED_COMMAND_BYTES);
         final ByteBuffer payloadBuffer =
                 ByteBuffer.allocate(ServerRuntimeInfo.getInstance().maxPayload());
 
@@ -107,8 +109,10 @@ final class ClientInteractionHandler implements Runnable {
             }
 
             if (!buffer.hasRemaining()) {
-                throw new IOException(
-                        "Command exceeds buffer capacity of " + buffer.capacity() + " bytes");
+                throw new IllegalStateException(
+                        "Command exceeds max allowed command size of "
+                                + MAX_ALLOWED_COMMAND_BYTES
+                                + " bytes");
             }
 
             buffer.put((byte) readValue);
