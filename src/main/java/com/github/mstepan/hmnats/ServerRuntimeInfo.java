@@ -13,13 +13,25 @@ public final class ServerRuntimeInfo {
 
     private static final ServerRuntimeInfo INSTANCE = new ServerRuntimeInfo();
 
+    private record ListeningAddress(String host, int port) {
+
+        private static final int MIN_PORT = 0;
+        private static final int MAX_PORT = 65_535;
+
+        private ListeningAddress {
+            Objects.requireNonNull(host, "host should not be null");
+            if (port < MIN_PORT || port > MAX_PORT) {
+                throw new IllegalArgumentException("Invalid TCP port value: " + port);
+            }
+        }
+    }
+
     private final String serverId;
     private final String version;
     private final int proto;
     private final String javaInfo;
     private final int maxPayload;
-    private volatile String host;
-    private volatile int port;
+    private volatile ListeningAddress listeningAddress;
 
     private ServerRuntimeInfo() {
         serverId = UUID.randomUUID().toString();
@@ -27,8 +39,7 @@ public final class ServerRuntimeInfo {
         proto = DEFAULT_PROTO;
         javaInfo = System.getProperty("java.version", "unknown");
         maxPayload = DEFAULT_MAX_PAYLOAD_BYTES;
-        host = DEFAULT_HOST;
-        port = DEFAULT_PORT;
+        listeningAddress = new ListeningAddress(DEFAULT_HOST, DEFAULT_PORT);
     }
 
     public static ServerRuntimeInfo getInstance() {
@@ -36,12 +47,7 @@ public final class ServerRuntimeInfo {
     }
 
     public void updateListeningAddress(String host, int port) {
-        this.host = Objects.requireNonNull(host, "host should not be null");
-
-        if (port < 0 || port > 65_535) {
-            throw new IllegalArgumentException("Invalid TCP port value: " + port);
-        }
-        this.port = port;
+        listeningAddress = new ListeningAddress(host, port);
     }
 
     public String serverId() {
@@ -61,11 +67,11 @@ public final class ServerRuntimeInfo {
     }
 
     public String host() {
-        return host;
+        return listeningAddress.host();
     }
 
     public int port() {
-        return port;
+        return listeningAddress.port();
     }
 
     public int maxPayload() {
