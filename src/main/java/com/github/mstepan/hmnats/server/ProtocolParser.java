@@ -23,30 +23,25 @@ final class ProtocolParser {
     private static final String SUB_COMMAND = "SUB";
     private static final String PING_COMMAND = "PING";
     private static final String PONG_COMMAND = "PONG";
-    private static final byte[] CONNECT_COMMAND_BYTES = CONNECT_COMMAND.getBytes(PROTOCOL_CHARSET);
-    private static final byte[] PUB_COMMAND_BYTES = PUB_COMMAND.getBytes(PROTOCOL_CHARSET);
-    private static final byte[] SUB_COMMAND_BYTES = SUB_COMMAND.getBytes(PROTOCOL_CHARSET);
-    private static final byte[] PING_COMMAND_BYTES = PING_COMMAND.getBytes(PROTOCOL_CHARSET);
-    private static final byte[] PONG_COMMAND_BYTES = PONG_COMMAND.getBytes(PROTOCOL_CHARSET);
 
-    private final ByteBuffer commandBuffer = ByteBuffer.allocate(MAX_ALLOWED_COMMAND_BYTES);
+    private final ByteBuffer commandBuffer;
     private final ByteBuffer payloadBuffer;
 
     ProtocolParser(int maxPayloadBytes) {
+        this.commandBuffer = ByteBuffer.allocate(MAX_ALLOWED_COMMAND_BYTES);
         this.payloadBuffer = ByteBuffer.allocate(maxPayloadBytes);
     }
 
     ProtocolCommand parseNext(InputStream in) throws IOException {
-        ByteBuffer commandBuffer = readUntilDelimiter(in, this.commandBuffer);
-        if (commandBuffer == null) {
+        String command = readUntilDelimiter(in, this.commandBuffer);
+        if (command == null) {
             return null;
         }
 
-        return parseCommand(commandBuffer, payloadBuffer, in);
+        return parseCommand(command, payloadBuffer, in);
     }
 
-    private static ByteBuffer readUntilDelimiter(InputStream in, ByteBuffer buffer)
-            throws IOException {
+    private static String readUntilDelimiter(InputStream in, ByteBuffer buffer) throws IOException {
         buffer.clear();
 
         while (true) {
@@ -68,9 +63,11 @@ final class ProtocolParser {
             buffer.put((byte) readValue);
             if (endsWithDelimiter(buffer, DELIMITER_BYTES)) {
                 int payloadLength = buffer.position() - DELIMITER_BYTES.length;
-                buffer.position(0);
-                buffer.limit(payloadLength);
-                return buffer.asReadOnlyBuffer().slice();
+
+                @SuppressWarnings("ByteBufferBackingArray")
+                byte[] data = buffer.array();
+
+                return new String(data, 0, payloadLength, PROTOCOL_CHARSET);
             }
         }
     }
@@ -89,106 +86,61 @@ final class ProtocolParser {
     }
 
     private static ProtocolCommand parseCommand(
-            ByteBuffer command, ByteBuffer payloadBuffer, InputStream in) throws IOException {
+            String command, ByteBuffer payloadBuffer, InputStream in) throws IOException {
 
-        // CONNECT {}\r\n
-        if (startsWith(command, CONNECT_COMMAND_BYTES)) {
+        // CONNECT {"option_name":option_value,...}\r\n
+        if (command.startsWith(CONNECT_COMMAND)) {
             return new ProtocolCommand.ConnectCommand();
         }
 
-        // PUB channel1 11\r\nHello John!\r\n
-        if (startsWith(command, PUB_COMMAND_BYTES)) {
+        // PUB <subject> [reply-to] <#bytes>\r\n[payload]\r\n
+        if (command.startsWith(PUB_COMMAND)) {
             int payloadLength = extractPubPayloadLength(command);
             LOG.debug("Received PUB command with payload length: {}", payloadLength);
             ByteBuffer payload = readPubPayload(in, payloadBuffer, payloadLength);
             return new ProtocolCommand.PubCommand(payload);
         }
 
-        // SUB channel1 1\r\n
-        if (startsWith(command, SUB_COMMAND_BYTES)) {
-            return new ProtocolCommand.SubCommand();
+        // SUB <subject> [queue group] <sid>\r\n
+        if (command.startsWith(SUB_COMMAND)) {
+            String[] subCommandData = extractSubSubjectAndSid(command);
+            return new ProtocolCommand.SubCommand(subCommandData[0], subCommandData[1]);
         }
 
         // PING\r\n
-        if (startsWith(command, PING_COMMAND_BYTES)) {
+        if (command.startsWith(PING_COMMAND)) {
             return new ProtocolCommand.PingCommand();
         }
 
         // PONG\r\n
-        if (startsWith(command, PONG_COMMAND_BYTES)) {
+        if (command.startsWith(PONG_COMMAND)) {
             return new ProtocolCommand.PongCommand();
         }
 
         return new ProtocolCommand.UnknownCommand();
     }
 
-    private static boolean startsWith(ByteBuffer data, byte[] prefix) {
-        if (data.remaining() < prefix.length) {
-            return false;
+    private static int extractPubPayloadLength(String command) throws IOException {
+        String[] tokens = IOUtils.splitIntoTokens(command);
+        if (tokens.length < 3) {
+            throw new IOException("Invalid PUB command format: '" + command + "'");
         }
 
-        int startPos = data.position();
-        for (int i = 0; i < prefix.length; ++i) {
-            if (data.get(startPos + i) != prefix[i]) {
-                return false;
-            }
+        String payloadLengthToken = tokens[tokens.length - 1];
+        try {
+            return Integer.parseInt(payloadLengthToken);
+        } catch (NumberFormatException ex) {
+            throw new IOException("Invalid PUB payload length in command: '" + command + "'", ex);
         }
-
-        return true;
     }
 
-    private static int extractPubPayloadLength(ByteBuffer command) throws IOException {
-        ByteBuffer commandCopy = command.asReadOnlyBuffer();
-        byte[] data = new byte[commandCopy.remaining()];
-        commandCopy.get(data);
-
-        int index = data.length - 1;
-        while (index >= 0 && Character.isWhitespace(data[index])) {
-            --index;
+    private static String[] extractSubSubjectAndSid(String command) throws IOException {
+        String[] tokens = IOUtils.splitIntoTokens(command);
+        if (tokens.length != 3) {
+            throw new IOException("Invalid SUB command format: '" + command + "'");
         }
 
-        if (index < 0) {
-            throw new IOException(
-                    "Invalid PUB command format: '" + IOUtils.bytesToString(command) + "'");
-        }
-
-        int endExclusive = index + 1;
-        while (index >= 0 && !Character.isWhitespace(data[index])) {
-            --index;
-        }
-        int startInclusive = index + 1;
-
-        int tokenCount = 1;
-        while (index >= 0) {
-            while (index >= 0 && Character.isWhitespace(data[index])) {
-                --index;
-            }
-            if (index < 0) {
-                break;
-            }
-
-            ++tokenCount;
-            while (index >= 0 && !Character.isWhitespace(data[index])) {
-                --index;
-            }
-        }
-
-        if (tokenCount < 3) {
-            throw new IOException(
-                    "Invalid PUB command format: '" + IOUtils.bytesToString(command) + "'");
-        }
-
-        try {
-            return Integer.parseInt(
-                    new String(
-                            data, startInclusive, endExclusive - startInclusive, PROTOCOL_CHARSET));
-        } catch (NumberFormatException ex) {
-            throw new IOException(
-                    "Invalid PUB payload length in command: '"
-                            + IOUtils.bytesToString(command)
-                            + "'",
-                    ex);
-        }
+        return new String[] {tokens[1], tokens[2]};
     }
 
     private static ByteBuffer readPubPayload(

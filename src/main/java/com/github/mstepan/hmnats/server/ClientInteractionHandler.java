@@ -29,7 +29,8 @@ final class ClientInteractionHandler implements Runnable {
 
     @Override
     public void run() {
-        ProtocolParser parser = new ProtocolParser(ServerRuntimeInfo.getInstance().maxPayload());
+        final ProtocolParser parser =
+                new ProtocolParser(ServerRuntimeInfo.getInstance().maxPayload());
 
         try (InputStream in = clientSocket.getInputStream();
                 OutputStream out = clientSocket.getOutputStream()) {
@@ -53,6 +54,7 @@ final class ClientInteractionHandler implements Runnable {
         }
     }
 
+    /** Response format: INFO {"option_name":option_value,...}\r\n */
     private String buildInfoResponse(ServerRuntimeInfo info) {
         return "INFO {\"server_id\":\""
                 + info.serverId()

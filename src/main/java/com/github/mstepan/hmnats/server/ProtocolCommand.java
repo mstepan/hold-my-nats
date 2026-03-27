@@ -28,7 +28,7 @@ sealed interface ProtocolCommand
         }
     }
 
-    record SubCommand() implements ProtocolCommand {}
+    record SubCommand(String subject, String sid) implements ProtocolCommand {}
 
     record PingCommand() implements ProtocolCommand {}
 
@@ -44,7 +44,11 @@ sealed interface ProtocolCommand
                 LOG.info("Received PUB command with payload length: {}", payload.remaining());
                 LOG.info("Received PUB payload content: '{}'", IOUtils.bytesToString(payload));
             }
-            case ProtocolCommand.SubCommand ignored -> LOG.info("Received SUB command");
+            case ProtocolCommand.SubCommand sub ->
+                    LOG.info(
+                            "Received SUB command, subject='{}', sid='{}'",
+                            sub.subject(),
+                            sub.sid());
             case ProtocolCommand.PingCommand ignored -> LOG.info("Received PING command");
             case ProtocolCommand.PongCommand ignored -> LOG.info("Received PONG command");
             case ProtocolCommand.UnknownCommand ignored -> LOG.info("Received unknown command");
