@@ -1,4 +1,4 @@
-package com.github.mstepan.hmnats;
+package com.github.mstepan.hmnats.server;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;

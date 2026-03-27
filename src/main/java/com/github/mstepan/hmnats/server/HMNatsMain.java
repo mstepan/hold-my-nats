@@ -1,4 +1,4 @@
-package com.github.mstepan.hmnats;
+package com.github.mstepan.hmnats.server;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.IOException;

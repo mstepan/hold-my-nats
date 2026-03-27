@@ -1,4 +1,4 @@
-package com.github.mstepan.hmnats;
+package com.github.mstepan.hmnats.server;
 
 import java.util.Objects;
 import java.util.UUID;
