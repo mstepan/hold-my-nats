@@ -1,6 +1,7 @@
 package com.github.mstepan.hmnats.server;
 
-import java.nio.ByteBuffer;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import java.util.concurrent.SynchronousQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,7 +15,7 @@ sealed interface ProtocolCommand
 
     Logger LOG = LoggerFactory.getLogger(ProtocolCommand.class);
 
-    default void handle() {
+    default void logCommand() {
         LOG.info("Received {}", representation());
     }
 
@@ -28,15 +29,16 @@ sealed interface ProtocolCommand
         }
     }
 
-    record PubCommand(String subject, ByteBuffer payload) implements ProtocolCommand {
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP")
+    record PubCommand(String subject, byte[] payload) implements ProtocolCommand {
 
-        public PubCommand {
-            payload = payload.asReadOnlyBuffer().slice();
+        public Message toMessage() {
+            return new Message(subject, payload);
         }
 
         @Override
-        public ByteBuffer payload() {
-            return payload.asReadOnlyBuffer().slice();
+        public byte[] payload() {
+            return payload;
         }
 
         @Override
@@ -51,6 +53,10 @@ sealed interface ProtocolCommand
     }
 
     record SubCommand(String subject, String sid) implements ProtocolCommand {
+
+        public Subscriber toSubscriber() {
+            return new Subscriber(subject, new SynchronousQueue<>());
+        }
 
         @Override
         public String representation() {

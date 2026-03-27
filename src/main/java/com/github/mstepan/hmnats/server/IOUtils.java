@@ -19,6 +19,10 @@ final class IOUtils {
         return new String(data, DEFAULT_CHARSET);
     }
 
+    static String bytesToString(byte[] payload) {
+        return new String(payload, DEFAULT_CHARSET);
+    }
+
     static String[] splitIntoTokens(String command) {
         assert command != null : "null 'command' parameter";
 

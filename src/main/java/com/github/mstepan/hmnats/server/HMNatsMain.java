@@ -19,7 +19,7 @@ public final class HMNatsMain {
     private static final int SO_TIMEOUT_MILLIS = 1_000;
     private final AtomicBoolean running = new AtomicBoolean(true);
 
-    public static void main(String[] args) {
+    static void main() {
         new HMNatsMain().run();
     }
 
@@ -30,6 +30,9 @@ public final class HMNatsMain {
                             + " and configured at deployment level")
     void run() {
         LOG.info("hold-my-nats started");
+
+        final MessageRouter router = new MessageRouter();
+        router.bootstrap();
 
         try (ServerSocket serverSocket = new ServerSocket(TCP_PORT)) {
             serverSocket.setSoTimeout(SO_TIMEOUT_MILLIS);
@@ -45,6 +48,7 @@ public final class HMNatsMain {
                                                 LOG.info("shutdown requested");
                                                 running.set(false);
                                                 SocketUtils.closeQuietly(serverSocket);
+                                                router.shutdown();
                                             }));
 
             LOG.info("TCP server listening on port {}", TCP_PORT);
@@ -59,7 +63,7 @@ public final class HMNatsMain {
 
                     Thread.ofVirtual()
                             .name("client-thread")
-                            .start(new ClientInteractionHandler(clientSocket));
+                            .start(new ClientInteractionHandler(clientSocket, router));
 
                 } catch (SocketException ex) {
                     if (running.get()) {

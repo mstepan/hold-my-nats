@@ -18,13 +18,16 @@ final class ClientInteractionHandler implements Runnable {
     private static final Charset PROTOCOL_CHARSET = StandardCharsets.UTF_8;
 
     private static final String DELIMITER = "\r\n";
+    private static final byte[] DELIMITER_BYTES = DELIMITER.getBytes(PROTOCOL_CHARSET);
 
     private final Socket clientSocket;
     private final String clientId;
+    private final MessageRouter router;
 
-    public ClientInteractionHandler(Socket clientSocket) {
+    public ClientInteractionHandler(Socket clientSocket, MessageRouter router) {
         this.clientSocket = Objects.requireNonNull(clientSocket, "clientSocket should not be null");
         this.clientId = randomUInt64String();
+        this.router = router;
     }
 
     @Override
@@ -44,9 +47,22 @@ final class ClientInteractionHandler implements Runnable {
                     break;
                 }
 
-                protocolCommand.handle();
+                protocolCommand.logCommand();
+
+                if (protocolCommand instanceof ProtocolCommand.PubCommand pubCommand) {
+                    router.publishMessage(pubCommand.toMessage());
+                } else if (protocolCommand instanceof ProtocolCommand.SubCommand subCommand) {
+                    Subscriber subscriber = subCommand.toSubscriber();
+                    router.registerSubscriber(subscriber);
+
+                    Thread.ofVirtual()
+                            .name("subscriber-response")
+                            .start(() -> waitAndSendSubscriberPayload(subscriber, out));
+                }
             }
 
+        } catch (InterruptedException interEx) {
+            Thread.currentThread().interrupt();
         } catch (IOException ioEx) {
             LOG.error("Error during client socket handling", ioEx);
         } finally {
@@ -77,5 +93,25 @@ final class ClientInteractionHandler implements Runnable {
 
     private static String randomUInt64String() {
         return Long.toUnsignedString(SECURE_RANDOM.nextLong());
+    }
+
+    private void waitAndSendSubscriberPayload(Subscriber subscriber, OutputStream out) {
+        try {
+            while (!Thread.currentThread().isInterrupted()) {
+                LOG.info("Waiting for subscriber to receive a message");
+                Message message = subscriber.get();
+
+                // write response to a socket out stream as a single atomic operation
+                synchronized (out) {
+                    out.write(message.payload());
+                    out.write(DELIMITER_BYTES);
+                    out.flush();
+                }
+            }
+        } catch (InterruptedException interEx) {
+            Thread.currentThread().interrupt();
+        } catch (IOException ioEx) {
+            LOG.error("Failed to send payload to subscribed client", ioEx);
+        }
     }
 }

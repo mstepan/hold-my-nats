@@ -110,7 +110,11 @@ final class ProtocolParser {
             int payloadLength = extractPubPayloadLength(command, commandTokens);
             LOG.debug("Received PUB command with payload length: {}", payloadLength);
             ByteBuffer payload = readPubPayload(in, payloadBuffer, payloadLength);
-            return new ProtocolCommand.PubCommand(subject, payload);
+
+            byte[] payloadBytes = new byte[payload.remaining()];
+            payload.duplicate().get(payloadBytes);
+
+            return new ProtocolCommand.PubCommand(subject, payloadBytes);
         }
 
         // SUB <subject> [queue group] <sid>\r\n
