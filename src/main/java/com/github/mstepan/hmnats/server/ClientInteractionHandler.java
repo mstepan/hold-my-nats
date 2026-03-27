@@ -55,6 +55,8 @@ final class ClientInteractionHandler implements Runnable {
                     Subscriber subscriber = subCommand.toSubscriber();
                     router.registerSubscriber(subscriber);
 
+                    // TODO: this virtual thread should be fully stopped when
+                    //  we receive 'UNSUB <sid>' command
                     Thread.ofVirtual()
                             .name("subscriber-response")
                             .start(() -> waitAndSendSubscriberPayload(subscriber, out));

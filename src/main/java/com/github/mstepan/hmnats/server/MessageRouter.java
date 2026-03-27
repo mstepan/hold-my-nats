@@ -6,20 +6,24 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 final class MessageRouter {
+
+    private static final Logger LOG = LoggerFactory.getLogger(MessageRouter.class);
 
     private volatile Thread pubThread;
 
     // ArrayBlockingQueue provides backpressure.
     // If the consumer cannot keep up and the queue fills up,
     // publishers will block on put() until space is available.
-    private final BlockingQueue<Message> pubQueue = new ArrayBlockingQueue<>(1024);
+    private final BlockingQueue<Message> newMessagesQueue = new ArrayBlockingQueue<>(1024);
 
     private final Map<String, Queue<Subscriber>> subscribers = new ConcurrentHashMap<>();
 
     void publishMessage(Message message) throws InterruptedException {
-        pubQueue.put(message);
+        newMessagesQueue.put(message);
     }
 
     void registerSubscriber(Subscriber subscriber) {
@@ -42,21 +46,19 @@ final class MessageRouter {
                         () -> {
                             while (!Thread.currentThread().isInterrupted()) {
                                 try {
-                                    Message message = pubQueue.take();
+                                    final Message message = newMessagesQueue.take();
 
                                     Queue<Subscriber> allSubscribers =
                                             subscribers.get(message.subject());
 
                                     if (allSubscribers == null) {
-                                        continue;
+                                        LOG.debug(
+                                                "No subscribers for subject {}", message.subject());
+                                    } else {
+                                        for (Subscriber subscriber : allSubscribers) {
+                                            subscriber.put(message);
+                                        }
                                     }
-
-                                    for (Subscriber subscriber : allSubscribers) {
-                                        subscriber.put(message);
-                                    }
-
-                                    // TODO: publish message
-
                                 } catch (InterruptedException interEx) {
                                     Thread.currentThread().interrupt();
                                 }
