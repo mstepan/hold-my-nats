@@ -88,59 +88,63 @@ final class ProtocolParser {
     private static ProtocolCommand parseCommand(
             String command, ByteBuffer payloadBuffer, InputStream in) throws IOException {
 
+        String[] commandTokens = IOUtils.splitIntoTokens(command);
+
+        if (commandTokens.length == 0) {
+            throw new IllegalStateException(String.format("Invalid command format: '%s'", command));
+        }
+
         // CONNECT {"option_name":option_value,...}\r\n
-        if (command.startsWith(CONNECT_COMMAND)) {
+        if (CONNECT_COMMAND.equals(commandTokens[0])) {
             return new ProtocolCommand.ConnectCommand();
         }
 
         // PUB <subject> [reply-to] <#bytes>\r\n[payload]\r\n
-        if (command.startsWith(PUB_COMMAND)) {
-            int payloadLength = extractPubPayloadLength(command);
+        if (PUB_COMMAND.equals(commandTokens[0])) {
+            if (commandTokens.length < 3) {
+                throw new IllegalStateException(
+                        String.format("Invalid PUB command format: '%s'", command));
+            }
+
+            String subject = commandTokens[1];
+            int payloadLength = extractPubPayloadLength(command, commandTokens);
             LOG.debug("Received PUB command with payload length: {}", payloadLength);
             ByteBuffer payload = readPubPayload(in, payloadBuffer, payloadLength);
-            return new ProtocolCommand.PubCommand(payload);
+            return new ProtocolCommand.PubCommand(subject, payload);
         }
 
         // SUB <subject> [queue group] <sid>\r\n
-        if (command.startsWith(SUB_COMMAND)) {
-            String[] subCommandData = extractSubSubjectAndSid(command);
-            return new ProtocolCommand.SubCommand(subCommandData[0], subCommandData[1]);
+        if (SUB_COMMAND.equals(commandTokens[0])) {
+            if (commandTokens.length < 3) {
+                throw new IllegalStateException(
+                        String.format("Invalid SUB command format: '%s'", command));
+            }
+            return new ProtocolCommand.SubCommand(commandTokens[1], commandTokens[2]);
         }
 
         // PING\r\n
-        if (command.startsWith(PING_COMMAND)) {
+        if (PING_COMMAND.equals(commandTokens[0])) {
             return new ProtocolCommand.PingCommand();
         }
 
         // PONG\r\n
-        if (command.startsWith(PONG_COMMAND)) {
+        if (PONG_COMMAND.equals(commandTokens[0])) {
             return new ProtocolCommand.PongCommand();
         }
 
         return new ProtocolCommand.UnknownCommand();
     }
 
-    private static int extractPubPayloadLength(String command) throws IOException {
-        String[] tokens = IOUtils.splitIntoTokens(command);
-        if (tokens.length < 3) {
-            throw new IOException("Invalid PUB command format: '" + command + "'");
-        }
+    private static int extractPubPayloadLength(String originalCommand, String[] commandTokens)
+            throws IOException {
 
-        String payloadLengthToken = tokens[tokens.length - 1];
+        String payloadLengthToken = commandTokens[commandTokens.length - 1];
         try {
             return Integer.parseInt(payloadLengthToken);
         } catch (NumberFormatException ex) {
-            throw new IOException("Invalid PUB payload length in command: '" + command + "'", ex);
+            throw new IOException(
+                    "Invalid PUB payload length in command: '" + originalCommand + "'", ex);
         }
-    }
-
-    private static String[] extractSubSubjectAndSid(String command) throws IOException {
-        String[] tokens = IOUtils.splitIntoTokens(command);
-        if (tokens.length != 3) {
-            throw new IOException("Invalid SUB command format: '" + command + "'");
-        }
-
-        return new String[] {tokens[1], tokens[2]};
     }
 
     private static ByteBuffer readPubPayload(

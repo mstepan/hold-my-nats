@@ -44,7 +44,7 @@ final class ClientInteractionHandler implements Runnable {
                     break;
                 }
 
-                ProtocolCommand.handle(protocolCommand);
+                protocolCommand.handle();
             }
 
         } catch (IOException ioEx) {

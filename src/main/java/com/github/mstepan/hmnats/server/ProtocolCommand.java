@@ -14,9 +14,21 @@ sealed interface ProtocolCommand
 
     Logger LOG = LoggerFactory.getLogger(ProtocolCommand.class);
 
-    record ConnectCommand() implements ProtocolCommand {}
+    default void handle() {
+        LOG.info("Received {}", representation());
+    }
 
-    record PubCommand(ByteBuffer payload) implements ProtocolCommand {
+    String representation();
+
+    record ConnectCommand() implements ProtocolCommand {
+
+        @Override
+        public String representation() {
+            return "CONNECT";
+        }
+    }
+
+    record PubCommand(String subject, ByteBuffer payload) implements ProtocolCommand {
 
         public PubCommand {
             payload = payload.asReadOnlyBuffer().slice();
@@ -26,32 +38,47 @@ sealed interface ProtocolCommand
         public ByteBuffer payload() {
             return payload.asReadOnlyBuffer().slice();
         }
+
+        @Override
+        public String subject() {
+            return subject;
+        }
+
+        @Override
+        public String representation() {
+            return "PUB %s %s".formatted(subject, IOUtils.bytesToString(payload));
+        }
     }
 
-    record SubCommand(String subject, String sid) implements ProtocolCommand {}
+    record SubCommand(String subject, String sid) implements ProtocolCommand {
 
-    record PingCommand() implements ProtocolCommand {}
+        @Override
+        public String representation() {
+            return "SUB %s %s".formatted(subject, sid);
+        }
+    }
 
-    record PongCommand() implements ProtocolCommand {}
+    record PingCommand() implements ProtocolCommand {
 
-    record UnknownCommand() implements ProtocolCommand {}
+        @Override
+        public String representation() {
+            return "PING";
+        }
+    }
 
-    static void handle(ProtocolCommand protocolCommand) {
-        switch (protocolCommand) {
-            case ProtocolCommand.ConnectCommand ignored -> LOG.info("Received CONNECT command");
-            case ProtocolCommand.PubCommand pub -> {
-                ByteBuffer payload = pub.payload();
-                LOG.info("Received PUB command with payload length: {}", payload.remaining());
-                LOG.info("Received PUB payload content: '{}'", IOUtils.bytesToString(payload));
-            }
-            case ProtocolCommand.SubCommand sub ->
-                    LOG.info(
-                            "Received SUB command, subject='{}', sid='{}'",
-                            sub.subject(),
-                            sub.sid());
-            case ProtocolCommand.PingCommand ignored -> LOG.info("Received PING command");
-            case ProtocolCommand.PongCommand ignored -> LOG.info("Received PONG command");
-            case ProtocolCommand.UnknownCommand ignored -> LOG.info("Received unknown command");
+    record PongCommand() implements ProtocolCommand {
+
+        @Override
+        public String representation() {
+            return "PONG";
+        }
+    }
+
+    record UnknownCommand() implements ProtocolCommand {
+
+        @Override
+        public String representation() {
+            return "UNKNOWN";
         }
     }
 }
