@@ -60,22 +60,32 @@ final class ClientInteractionHandler implements Runnable {
 
                         protocolCommand.logCommand();
 
-                        if (protocolCommand instanceof ProtocolCommand.PubCommand pubCommand) {
-                            router.publishMessage(pubCommand.toMessage());
+                        switch (protocolCommand) {
+                            case ProtocolCommand.PubCommand pubCommand ->
+                                    router.publishMessage(pubCommand.toMessage());
+                            case ProtocolCommand.SubCommand subCommand -> {
+                                Subscriber newSubscriber = subCommand.toSubscriber();
 
-                        } else if (protocolCommand
-                                instanceof ProtocolCommand.SubCommand subCommand) {
-                            Subscriber newSubscriber = subCommand.toSubscriber();
+                                StreamSubscription streamSub =
+                                        subscriptions.get(newSubscriber.sid());
 
-                            StreamSubscription streamSub = subscriptions.get(newSubscriber.sid());
+                                // If we have any previous streams subscriptions identified by a
+                                // 'sid' we need to remove existing subscriptions first
+                                if (streamSub != null) {
+                                    terminateSubscription(streamSub);
+                                }
 
-                            // If we have any previous streams subscriptions identified by a 'sid'
-                            // we need to remove existing subscriptions first
-                            if (streamSub != null) {
-                                terminateSubscription(streamSub);
+                                createSubscription(childTaskExecutor, newSubscriber, out);
                             }
-
-                            createSubscription(childTaskExecutor, newSubscriber, out);
+                            case ProtocolCommand.PingCommand _ ->
+                                    SocketUtils.writeAtomic(
+                                            out,
+                                            "PONG".getBytes(PROTOCOL_CHARSET),
+                                            DELIMITER_BYTES);
+                            default ->
+                                    LOG.warn(
+                                            "Not implemented protocol command: {}",
+                                            protocolCommand);
                         }
                     }
                 } finally {

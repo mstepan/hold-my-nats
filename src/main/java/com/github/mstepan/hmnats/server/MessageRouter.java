@@ -24,9 +24,7 @@ final class MessageRouter implements AutoCloseable {
 
     private final Map<String, Queue<Subscriber>> activeSubscribers = new ConcurrentHashMap<>();
 
-    private MessageRouter() {
-        throw new AssertionError("MessageRouter cannot be instantiated through constructor");
-    }
+    private MessageRouter() {}
 
     static MessageRouter newBootstrapped() {
         MessageRouter router = new MessageRouter();
@@ -37,6 +35,7 @@ final class MessageRouter implements AutoCloseable {
     private void bootstrap() {
         // publisher thread is the core of message publishing and it's only ONE as of now, so better
         // to start as a PLATFORM thread
+        // TODO: we should spin up more than ONE thread in future and do HASH routing
         publisherThread = Thread.ofPlatform().unstarted(new MessagePublishingLoop());
         publisherThread.start();
 
