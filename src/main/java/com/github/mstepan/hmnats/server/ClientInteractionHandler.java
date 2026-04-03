@@ -1,8 +1,5 @@
 package com.github.mstepan.hmnats.server;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -14,8 +11,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-@SuppressWarnings("preview")
 final class ClientInteractionHandler implements Runnable {
 
     private static final Logger LOG = LoggerFactory.getLogger(ClientInteractionHandler.class);
@@ -53,31 +51,35 @@ final class ClientInteractionHandler implements Runnable {
             out.write((buildInfoResponse(info) + DELIMITER).getBytes(PROTOCOL_CHARSET));
 
             try (ExecutorService childTaskExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
-                while (!Thread.currentThread().isInterrupted()) {
-                    ProtocolCommand protocolCommand = parser.parseNext(in);
-                    if (protocolCommand == null) {
-                        break;
-                    }
-
-                    protocolCommand.logCommand();
-
-                    if (protocolCommand instanceof ProtocolCommand.PubCommand pubCommand) {
-                        router.publishMessage(pubCommand.toMessage());
-
-                    } else if (protocolCommand instanceof ProtocolCommand.SubCommand subCommand) {
-                        Subscriber newSubscriber = subCommand.toSubscriber();
-
-                        StreamSubscription streamSub = subscriptions.get(newSubscriber.sid());
-
-                        // If we have any previous streams subscriptions identified by a 'sid' we
-                        // need to remove existing subscriptions first
-                        if (streamSub != null) {
-                            streamSub.future.cancel(true);
-                            router.terminateSubscription(streamSub.subscriber);
+                try {
+                    while (!Thread.currentThread().isInterrupted()) {
+                        ProtocolCommand protocolCommand = parser.parseNext(in);
+                        if (protocolCommand == null) {
+                            break;
                         }
 
-                        createSubscription(childTaskExecutor, newSubscriber, out);
+                        protocolCommand.logCommand();
+
+                        if (protocolCommand instanceof ProtocolCommand.PubCommand pubCommand) {
+                            router.publishMessage(pubCommand.toMessage());
+
+                        } else if (protocolCommand
+                                instanceof ProtocolCommand.SubCommand subCommand) {
+                            Subscriber newSubscriber = subCommand.toSubscriber();
+
+                            StreamSubscription streamSub = subscriptions.get(newSubscriber.sid());
+
+                            // If we have any previous streams subscriptions identified by a 'sid'
+                            // we need to remove existing subscriptions first
+                            if (streamSub != null) {
+                                terminateSubscription(streamSub);
+                            }
+
+                            createSubscription(childTaskExecutor, newSubscriber, out);
+                        }
                     }
+                } finally {
+                    terminateAllSubscriptions();
                 }
             }
         } catch (InterruptedException interEx) {
@@ -106,6 +108,16 @@ final class ClientInteractionHandler implements Runnable {
                     newSubscriber.sid(),
                     ex);
         }
+    }
+
+    private void terminateSubscription(StreamSubscription streamSub) {
+        streamSub.future.cancel(true);
+        router.terminateSubscription(streamSub.subscriber);
+    }
+
+    private void terminateAllSubscriptions() {
+        subscriptions.values().forEach(this::terminateSubscription);
+        subscriptions.clear();
     }
 
     /** Response format: INFO {"option_name":option_value,...}\r\n */
@@ -146,8 +158,7 @@ final class ClientInteractionHandler implements Runnable {
             Thread.currentThread().interrupt();
         } catch (IOException ioEx) {
             LOG.error("Failed to send payload to subscribed client", ioEx);
-        }
-        finally {
+        } finally {
             LOG.info("Subscriber terminated");
         }
     }

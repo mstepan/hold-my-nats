@@ -84,9 +84,12 @@ final class MessageRouter {
                             }
                         });
         pubThread.start();
+
+        LOG.info("Message router started");
     }
 
     public void shutdown() {
         pubThread.interrupt();
+        LOG.info("Message router terminated");
     }
 }

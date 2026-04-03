@@ -1,87 +1,82 @@
 package com.github.mstepan.hmnats.server;
 
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.net.SocketException;
-import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.nio.channels.ClosedByInterruptException;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class HMNatsMain {
 
     private static final Logger LOG = LoggerFactory.getLogger(HMNatsMain.class);
     private static final int TCP_PORT = 4222;
-    private static final int SO_TIMEOUT_MILLIS = 1_000;
-    private final AtomicBoolean running = new AtomicBoolean(true);
 
     static void main() {
         new HMNatsMain().run();
     }
 
-    @SuppressFBWarnings(
-            value = "UNENCRYPTED_SERVER_SOCKET",
-            justification =
-                    "NATS protocol is plain TCP by default; TLS termination is expected to be optional"
-                            + " and configured at deployment level")
     void run() {
         LOG.info("hold-my-nats started");
 
+        final Thread mainThread = Thread.currentThread();
         final MessageRouter router = new MessageRouter();
+        final List<Thread> clientThreads = new ArrayList<>();
         router.bootstrap();
 
-        // TODO: use non-blocking ServerSocket here to simplify cancellation
-        // ServerSocketChannel channel = ServerSocketChannel.open();
-        // channel.configureBlocking(true);
-        //
-        try (ServerSocket serverSocket = new ServerSocket(TCP_PORT)) {
-            serverSocket.setSoTimeout(SO_TIMEOUT_MILLIS);
-            ServerRuntimeInfo.getInstance()
-                    .updateListeningAddress(resolveAdvertisedHost(serverSocket), TCP_PORT);
+        Runtime.getRuntime()
+                .addShutdownHook(
+                        Thread.ofPlatform()
+                                .name("hold-my-nats-shutdown")
+                                .unstarted(
+                                        () -> {
+                                            LOG.info("shutdown requested");
+                                            mainThread.interrupt();
+                                        }));
 
-            Runtime.getRuntime()
-                    .addShutdownHook(
-                            Thread.ofPlatform()
-                                    .name("hold-my-nats-shutdown")
-                                    .unstarted(
-                                            () -> {
-                                                LOG.info("shutdown requested");
-                                                running.set(false);
-                                                SocketUtils.closeQuietly(serverSocket);
-                                                router.shutdown();
-                                            }));
+        try (ServerSocketChannel channel = ServerSocketChannel.open()) {
+            channel.configureBlocking(true);
+            channel.bind(new InetSocketAddress(TCP_PORT));
+
+            ServerRuntimeInfo.getInstance()
+                    .updateListeningAddress(resolveAdvertisedHost(channel.socket()), TCP_PORT);
 
             LOG.info("TCP server listening on port {}", TCP_PORT);
 
-            while (running.get()) {
+            while (!mainThread.isInterrupted()) {
                 try {
-                    final Socket clientSocket = serverSocket.accept();
+                    final SocketChannel clientSocketChannel = channel.accept();
+                    final Socket clientSocket = clientSocketChannel.socket();
                     LOG.info(
                             "accepted connection from {}:{}",
                             clientSocket.getInetAddress(),
                             clientSocket.getPort());
 
-                    Thread.ofVirtual()
-                            .name("client-thread")
-                            .start(new ClientInteractionHandler(clientSocket, router));
+                    Thread clientThread =
+                            Thread.ofVirtual()
+                                    .name("client-thread")
+                                    .start(new ClientInteractionHandler(clientSocket, router));
 
-                } catch (SocketException ex) {
-                    if (running.get()) {
-                        throw ex;
-                    }
-                    LOG.debug("Server socket closed as part of shutdown");
-                } catch (SocketTimeoutException ignored) {
-                    // Periodically check 'running' flag.
+                    clientThreads.add(clientThread);
+                    removeTerminatedThreads(clientThreads);
+                } catch (ClosedByInterruptException ex) {
+                    LOG.debug("Server socket interrupted as part of shutdown");
+                    Thread.currentThread().interrupt();
                 }
             }
         } catch (IOException ex) {
             LOG.error("Failed to start TCP server", ex);
+        } finally {
+            terminateClientThreads(clientThreads);
+            router.shutdown();
         }
 
         LOG.info("hold-my-nats completed");
@@ -99,6 +94,29 @@ public final class HMNatsMain {
         } catch (UnknownHostException ex) {
             LOG.warn("Failed to resolve local host address, fallback to loopback", ex);
             return InetAddress.getLoopbackAddress().getHostAddress();
+        }
+    }
+
+    private static void removeTerminatedThreads(List<Thread> clientThreads) {
+        clientThreads.removeIf(thread -> !thread.isAlive());
+    }
+
+    private static void terminateClientThreads(List<Thread> clientThreads) {
+        LOG.info("Terminating {} active client handler threads", clientThreads.size());
+
+        clientThreads.forEach(Thread::interrupt);
+
+        for (Thread clientThread : clientThreads) {
+            try {
+                clientThread.join(1_000L);
+            } catch (InterruptedException interruptedEx) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+
+            if (clientThread.isAlive()) {
+                LOG.warn("Client handler thread '{}' didn't terminate in time", clientThread);
+            }
         }
     }
 }
