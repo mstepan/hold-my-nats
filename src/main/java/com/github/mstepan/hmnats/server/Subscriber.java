@@ -8,7 +8,7 @@ import java.util.concurrent.SynchronousQueue;
         justification =
                 "Subscriber intentionally exposes and stores the shared queue reference for hand-off"
                         + " semantics between router and client thread")
-public record Subscriber(String subject, SynchronousQueue<Message> singleSlot) {
+public record Subscriber(String subject, String sid, SynchronousQueue<Message> singleSlot) {
 
     Message get() throws InterruptedException {
         return singleSlot().take();

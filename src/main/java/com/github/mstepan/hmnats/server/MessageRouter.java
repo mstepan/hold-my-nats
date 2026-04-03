@@ -5,11 +5,12 @@ import java.util.Queue;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedBlockingQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 final class MessageRouter {
+
+    private static final int MAX_SUBSCRIBERS_PER_SUBJECT = 1024;
 
     private static final Logger LOG = LoggerFactory.getLogger(MessageRouter.class);
 
@@ -26,16 +27,34 @@ final class MessageRouter {
         newMessagesQueue.put(message);
     }
 
-    void registerSubscriber(Subscriber subscriber) {
+    void createSubscription(Subscriber subscriber) {
         subscribers.compute(
                 subscriber.subject(),
                 (keyNotUsed, subQueue) -> {
                     if (subQueue == null) {
-                        subQueue = new LinkedBlockingQueue<>();
+                        // We should use ArrayBlockingQueue here to remove possibility of infinity
+                        // queue
+                        subQueue = new ArrayBlockingQueue<>(MAX_SUBSCRIBERS_PER_SUBJECT);
+                    }
+
+                    if (subQueue.size() == MAX_SUBSCRIBERS_PER_SUBJECT) {
+                        throw new IllegalStateException("Subscription already full");
                     }
 
                     subQueue.add(subscriber);
 
+                    return subQueue;
+                });
+    }
+
+    void terminateSubscription(Subscriber subscriber) {
+        subscribers.computeIfPresent(
+                subscriber.subject(),
+                (keyNotUsed, subQueue) -> {
+                    subQueue.remove(subscriber);
+                    if (subQueue.isEmpty()) {
+                        return null;
+                    }
                     return subQueue;
                 });
     }

@@ -1,5 +1,8 @@
 package com.github.mstepan.hmnats.server;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -7,10 +10,12 @@ import java.net.Socket;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.concurrent.*;
 
+@SuppressWarnings("preview")
 final class ClientInteractionHandler implements Runnable {
 
     private static final Logger LOG = LoggerFactory.getLogger(ClientInteractionHandler.class);
@@ -24,11 +29,17 @@ final class ClientInteractionHandler implements Runnable {
     private final String clientId;
     private final MessageRouter router;
 
+    // Stores mapping 'sid' -> 'stream'. This map will be used only from 'ClientInteractionHandler'
+    // thread so don't need to be synchronized
+    private final Map<String, StreamSubscription> subscriptions = new HashMap<>();
+
     public ClientInteractionHandler(Socket clientSocket, MessageRouter router) {
         this.clientSocket = Objects.requireNonNull(clientSocket, "clientSocket should not be null");
         this.clientId = randomUInt64String();
         this.router = router;
     }
+
+    record StreamSubscription(Subscriber subscriber, Future<?> future) {}
 
     @Override
     public void run() {
@@ -41,34 +52,59 @@ final class ClientInteractionHandler implements Runnable {
             ServerRuntimeInfo info = ServerRuntimeInfo.getInstance();
             out.write((buildInfoResponse(info) + DELIMITER).getBytes(PROTOCOL_CHARSET));
 
-            while (!Thread.currentThread().isInterrupted()) {
-                ProtocolCommand protocolCommand = parser.parseNext(in);
-                if (protocolCommand == null) {
-                    break;
-                }
+            try (ExecutorService childTaskExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
+                while (!Thread.currentThread().isInterrupted()) {
+                    ProtocolCommand protocolCommand = parser.parseNext(in);
+                    if (protocolCommand == null) {
+                        break;
+                    }
 
-                protocolCommand.logCommand();
+                    protocolCommand.logCommand();
 
-                if (protocolCommand instanceof ProtocolCommand.PubCommand pubCommand) {
-                    router.publishMessage(pubCommand.toMessage());
-                } else if (protocolCommand instanceof ProtocolCommand.SubCommand subCommand) {
-                    Subscriber subscriber = subCommand.toSubscriber();
-                    router.registerSubscriber(subscriber);
+                    if (protocolCommand instanceof ProtocolCommand.PubCommand pubCommand) {
+                        router.publishMessage(pubCommand.toMessage());
 
-                    // TODO: this virtual thread should be fully stopped when
-                    //  we receive 'UNSUB <sid>' command
-                    Thread.ofVirtual()
-                            .name("subscriber-response")
-                            .start(() -> waitAndSendSubscriberPayload(subscriber, out));
+                    } else if (protocolCommand instanceof ProtocolCommand.SubCommand subCommand) {
+                        Subscriber newSubscriber = subCommand.toSubscriber();
+
+                        StreamSubscription streamSub = subscriptions.get(newSubscriber.sid());
+
+                        // If we have any previous streams subscriptions identified by a 'sid' we
+                        // need to remove existing subscriptions first
+                        if (streamSub != null) {
+                            streamSub.future.cancel(true);
+                            router.terminateSubscription(streamSub.subscriber);
+                        }
+
+                        createSubscription(childTaskExecutor, newSubscriber, out);
+                    }
                 }
             }
-
         } catch (InterruptedException interEx) {
             Thread.currentThread().interrupt();
         } catch (IOException ioEx) {
             LOG.error("Error during client socket handling", ioEx);
         } finally {
             SocketUtils.closeQuietly(clientSocket);
+        }
+    }
+
+    void createSubscription(
+            ExecutorService childTaskExecutor, Subscriber newSubscriber, OutputStream out) {
+        try {
+            router.createSubscription(newSubscriber);
+
+            Future<?> childFuture =
+                    childTaskExecutor.submit(() -> handleSingleSubscription(newSubscriber, out));
+
+            subscriptions.put(
+                    newSubscriber.sid(), new StreamSubscription(newSubscriber, childFuture));
+        } catch (IllegalStateException | IllegalArgumentException ex) {
+            LOG.error(
+                    "Error creating subscription for subject '{}' and sid '{}'",
+                    newSubscriber.subject(),
+                    newSubscriber.sid(),
+                    ex);
         }
     }
 
@@ -97,23 +133,22 @@ final class ClientInteractionHandler implements Runnable {
         return Long.toUnsignedString(SECURE_RANDOM.nextLong());
     }
 
-    private void waitAndSendSubscriberPayload(Subscriber subscriber, OutputStream out) {
+    private void handleSingleSubscription(Subscriber subscriber, OutputStream out) {
+        LOG.info("Subscriber started");
         try {
             while (!Thread.currentThread().isInterrupted()) {
                 LOG.info("Waiting for subscriber to receive a message");
                 Message message = subscriber.get();
 
-                // write response to a socket out stream as a single atomic operation
-                synchronized (out) {
-                    out.write(message.payload());
-                    out.write(DELIMITER_BYTES);
-                    out.flush();
-                }
+                SocketUtils.writeAtomic(out, message.payload(), DELIMITER_BYTES);
             }
         } catch (InterruptedException interEx) {
             Thread.currentThread().interrupt();
         } catch (IOException ioEx) {
             LOG.error("Failed to send payload to subscribed client", ioEx);
+        }
+        finally {
+            LOG.info("Subscriber terminated");
         }
     }
 }

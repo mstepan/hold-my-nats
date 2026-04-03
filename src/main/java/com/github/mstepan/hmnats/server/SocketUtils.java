@@ -2,6 +2,7 @@ package com.github.mstepan.hmnats.server;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import org.slf4j.Logger;
@@ -21,6 +22,15 @@ final class SocketUtils {
 
     static void closeQuietly(Socket clientSocket) {
         closeQuietly(clientSocket, "client socket");
+    }
+
+    /** Write response to a socket output stream as a single atomic operation */
+    static void writeAtomic(OutputStream out, byte[] payload, byte[] delimiter) throws IOException {
+        synchronized (out) {
+            out.write(payload);
+            out.write(delimiter);
+            out.flush();
+        }
     }
 
     private static void closeQuietly(Closeable resource, String resourceName) {

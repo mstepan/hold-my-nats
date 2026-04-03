@@ -1,6 +1,10 @@
 package com.github.mstepan.hmnats.server;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -9,8 +13,6 @@ import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public final class HMNatsMain {
 
@@ -34,6 +36,10 @@ public final class HMNatsMain {
         final MessageRouter router = new MessageRouter();
         router.bootstrap();
 
+        // TODO: use non-blocking ServerSocket here to simplify cancellation
+        // ServerSocketChannel channel = ServerSocketChannel.open();
+        // channel.configureBlocking(true);
+        //
         try (ServerSocket serverSocket = new ServerSocket(TCP_PORT)) {
             serverSocket.setSoTimeout(SO_TIMEOUT_MILLIS);
             ServerRuntimeInfo.getInstance()

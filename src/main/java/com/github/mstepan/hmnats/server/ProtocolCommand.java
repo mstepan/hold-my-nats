@@ -55,7 +55,7 @@ sealed interface ProtocolCommand
     record SubCommand(String subject, String sid) implements ProtocolCommand {
 
         public Subscriber toSubscriber() {
-            return new Subscriber(subject, new SynchronousQueue<>());
+            return new Subscriber(subject, sid, new SynchronousQueue<>());
         }
 
         @Override
