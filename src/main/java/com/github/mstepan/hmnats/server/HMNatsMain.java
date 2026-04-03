@@ -14,7 +14,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public final class HMNatsMain {
+final class HMNatsMain {
 
     private static final Logger LOG = LoggerFactory.getLogger(HMNatsMain.class);
     private static final int TCP_PORT = 4222;
@@ -42,8 +42,7 @@ public final class HMNatsMain {
                                             mainThread.interrupt();
                                         }));
 
-        try (MessageRouter router = new MessageRouter()) {
-            router.bootstrap();
+        try (MessageRouter router = MessageRouter.newBootstrapped()) {
 
             try (ServerSocketChannel channel = ServerSocketChannel.open()) {
                 channel.configureBlocking(true);

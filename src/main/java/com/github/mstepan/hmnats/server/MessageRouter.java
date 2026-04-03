@@ -11,25 +11,67 @@ import org.slf4j.LoggerFactory;
 final class MessageRouter implements AutoCloseable {
 
     private static final int MAX_SUBSCRIBERS_PER_SUBJECT = 1024;
-    private static final long PUB_THREAD_JOIN_TIMEOUT_MILLIS = 1_000L;
+    private static final long PUBLISHER_THREAD_JOIN_TIMEOUT_MILLIS = 1_000L;
 
     private static final Logger LOG = LoggerFactory.getLogger(MessageRouter.class);
 
-    private volatile Thread pubThread;
+    private volatile Thread publisherThread;
 
     // ArrayBlockingQueue provides backpressure.
     // If the consumer cannot keep up and the queue fills up,
     // publishers will block on put() until space is available.
-    private final BlockingQueue<Message> newMessagesQueue = new ArrayBlockingQueue<>(1024);
+    private final BlockingQueue<Message> messageQueue = new ArrayBlockingQueue<>(1024);
 
-    private final Map<String, Queue<Subscriber>> subscribers = new ConcurrentHashMap<>();
+    private final Map<String, Queue<Subscriber>> activeSubscribers = new ConcurrentHashMap<>();
+
+    private MessageRouter() {
+        throw new AssertionError("MessageRouter cannot be instantiated through constructor");
+    }
+
+    static MessageRouter newBootstrapped() {
+        MessageRouter router = new MessageRouter();
+        router.bootstrap();
+        return router;
+    }
+
+    private void bootstrap() {
+        // publisher thread is the core of message publishing and it's only ONE as of now, so better
+        // to start as a PLATFORM thread
+        publisherThread = Thread.ofPlatform().unstarted(new MessagePublishingLoop());
+        publisherThread.start();
+
+        LOG.info("Message router started");
+    }
+
+    private final class MessagePublishingLoop implements Runnable {
+        @Override
+        public void run() {
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    final Message message = messageQueue.take();
+
+                    Queue<Subscriber> allSubscribers = activeSubscribers.get(message.subject());
+
+                    if (allSubscribers == null) {
+                        LOG.debug("No subscribers for subject {}", message.subject());
+                    } else {
+                        for (Subscriber subscriber : allSubscribers) {
+                            subscriber.put(message);
+                        }
+                    }
+                } catch (InterruptedException interEx) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+    }
 
     void publishMessage(Message message) throws InterruptedException {
-        newMessagesQueue.put(message);
+        messageQueue.put(message);
     }
 
     void createSubscription(Subscriber subscriber) {
-        subscribers.compute(
+        activeSubscribers.compute(
                 subscriber.subject(),
                 (keyNotUsed, subQueue) -> {
                     if (subQueue == null) {
@@ -49,7 +91,7 @@ final class MessageRouter implements AutoCloseable {
     }
 
     void terminateSubscription(Subscriber subscriber) {
-        subscribers.computeIfPresent(
+        activeSubscribers.computeIfPresent(
                 subscriber.subject(),
                 (keyNotUsed, subQueue) -> {
                     subQueue.remove(subscriber);
@@ -60,58 +102,27 @@ final class MessageRouter implements AutoCloseable {
                 });
     }
 
-    public void bootstrap() {
-        pubThread =
-                new Thread(
-                        () -> {
-                            while (!Thread.currentThread().isInterrupted()) {
-                                try {
-                                    final Message message = newMessagesQueue.take();
-
-                                    Queue<Subscriber> allSubscribers =
-                                            subscribers.get(message.subject());
-
-                                    if (allSubscribers == null) {
-                                        LOG.debug(
-                                                "No subscribers for subject {}", message.subject());
-                                    } else {
-                                        for (Subscriber subscriber : allSubscribers) {
-                                            subscriber.put(message);
-                                        }
-                                    }
-                                } catch (InterruptedException interEx) {
-                                    Thread.currentThread().interrupt();
-                                }
-                            }
-                        });
-        pubThread.start();
-
-        LOG.info("Message router started");
-    }
-
-    public void shutdown() {
-        Thread curPubThread = pubThread;
-        if (curPubThread == null) {
+    @Override
+    public void close() {
+        final Thread curPublisherThread = publisherThread;
+        if (curPublisherThread == null) {
             return;
         }
 
-        curPubThread.interrupt();
+        curPublisherThread.interrupt();
 
         try {
-            curPubThread.join(PUB_THREAD_JOIN_TIMEOUT_MILLIS);
+            curPublisherThread.join(PUBLISHER_THREAD_JOIN_TIMEOUT_MILLIS);
         } catch (InterruptedException interruptedEx) {
             Thread.currentThread().interrupt();
         }
 
-        if (curPubThread.isAlive()) {
-            LOG.warn("Message router thread didn't terminate in time");
+        if (curPublisherThread.isAlive()) {
+            LOG.warn(
+                    "Message router thread wasn't terminate in {} ms",
+                    PUBLISHER_THREAD_JOIN_TIMEOUT_MILLIS);
         }
 
         LOG.info("Message router terminated");
-    }
-
-    @Override
-    public void close() {
-        shutdown();
     }
 }
