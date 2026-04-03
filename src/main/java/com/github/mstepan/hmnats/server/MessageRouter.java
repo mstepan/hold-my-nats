@@ -8,9 +8,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-final class MessageRouter {
+final class MessageRouter implements AutoCloseable {
 
     private static final int MAX_SUBSCRIBERS_PER_SUBJECT = 1024;
+    private static final long PUB_THREAD_JOIN_TIMEOUT_MILLIS = 1_000L;
 
     private static final Logger LOG = LoggerFactory.getLogger(MessageRouter.class);
 
@@ -89,7 +90,28 @@ final class MessageRouter {
     }
 
     public void shutdown() {
-        pubThread.interrupt();
+        Thread curPubThread = pubThread;
+        if (curPubThread == null) {
+            return;
+        }
+
+        curPubThread.interrupt();
+
+        try {
+            curPubThread.join(PUB_THREAD_JOIN_TIMEOUT_MILLIS);
+        } catch (InterruptedException interruptedEx) {
+            Thread.currentThread().interrupt();
+        }
+
+        if (curPubThread.isAlive()) {
+            LOG.warn("Message router thread didn't terminate in time");
+        }
+
         LOG.info("Message router terminated");
+    }
+
+    @Override
+    public void close() {
+        shutdown();
     }
 }
